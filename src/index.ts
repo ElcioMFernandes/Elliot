@@ -549,6 +549,136 @@ app.post("/api/access", async (req: Request, res: Response) => {
 });
 
 // Endpoint que renova o token de acesso
+app.post("/api/refresh", async (req: Request, res: Response) => {
+  /**
+   * @swagger
+   * /api/refresh:
+   *   post:
+   *     summary: Renova o token de acesso usando um token de refresh válido
+   *     tags: [Autenticação]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               refreshToken:
+   *                 type: string
+   *                 description: Token de refresh JWT válido
+   *             required:
+   *               - refreshToken
+   *     responses:
+   *       200:
+   *         description: Token de acesso renovado com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 accessToken:
+   *                   type: string
+   *                   description: Novo token de acesso JWT
+   *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   *       401:
+   *         description: Token de refresh não fornecido, não encontrado, revogado, expirado ou usuário não encontrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Refresh token not provided
+   *       403:
+   *         description: Token de refresh inválido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid refresh token
+   */
+  // Obter o token de refresh do corpo da requisição
+  const refreshToken = req.body.refreshToken;
+
+  // Verifica se o token de refresh foi enviado
+  refreshToken
+    ? // Verifica se o token de refresh é válido
+      jwt.verify(
+        refreshToken,
+        REFRESH_TOKEN_SECRET,
+        async (err: any, user: any) => {
+          // Se o token de refresh for inválido, retorna erro 401
+          if (err) {
+            return res.status(403).json({ error: "Invalid refresh token" });
+          }
+          // Verifica se o token de refresh está na lista de tokens e não foi revogado
+
+          const token = await prisma.token.findFirst({
+            where: {
+              refresh: refreshToken,
+              revoked: false,
+              expiredAt: {
+                gt: new Date(),
+              },
+            },
+          });
+
+          // Se o token de refresh não existir, retorna erro 401
+          if (!token) {
+            return res.status(401).json({ error: "Refresh token not found" });
+          }
+          // Verifica se o token de refresh foi revogado
+          if (token.revoked) {
+            return res.status(401).json({ error: "Refresh token revoked" });
+          }
+          // Verifica se o token de refresh expirou
+          if (token.expiredAt < new Date()) {
+            return res.status(401).json({ error: "Refresh token expired" });
+          }
+          // Verifica se o usuário existe
+          const userExists = await prisma.user.findUnique({
+            where: {
+              id: token.userId,
+            },
+          });
+
+          // Se o usuário não existir, retorna erro 401
+          if (!userExists) {
+            return res.status(401).json({ error: "User not found" });
+          }
+
+          // Gera um novo token de acesso
+          const newAccessToken = jwt.sign(
+            {
+              id: userExists.id,
+              username: userExists.username,
+              email: userExists.email,
+            },
+            ACCESS_TOKEN_SECRET,
+            { expiresIn: ACCESS_TOKEN_EXPIRY }
+          );
+
+          // Atualiza o token de refresh no banco de dados
+          await prisma.token.update({
+            where: {
+              id: token.id,
+            },
+            data: {
+              access: newAccessToken,
+              expiredAt: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000), // 1 dia
+            },
+          });
+
+          // Retorna o novo token de acesso
+          res.json({ accessToken: newAccessToken });
+        }
+      )
+    : res.status(401).json({ error: "Refresh token not provided" });
+});
 
 // Endpoint para revogar o token de acesso
 
