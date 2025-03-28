@@ -465,10 +465,10 @@ app.post("/api/auth", async (req: Request, res: Response) => {
 });
 
 // Endpoint que verifica se o token é válido
-app.post("/api/verify", async (req: Request, res: Response) => {
+app.post("/api/access", async (req: Request, res: Response) => {
   /**
    * @swagger
-   * /api/verify:
+   * /api/access:
    *   post:
    *     summary: Verifica a validade de um token de acesso
    *     tags: [Autenticação]
