@@ -71,27 +71,6 @@ app.use(async (req: Request, res: Response, next) => {
   next();
 });
 
-// Endpoint para verificar se a API está online
-app.get("/", (req: Request, res: Response) => {
-  /**
-   * @swagger
-   * /:
-   *  get:
-   *   summary: Verifica se a API está online
-   *   tags: [Status]
-   *   requestBody:
-   *    required: false
-   *  responses:
-   *   200:
-   *    message: API online
-   *  404:
-   *   message: API offline
-   */
-
-  // Retornar mensagem de API online
-  res.json({ message: "API online" });
-});
-
 // Endpoint para verificar o status da API
 app.get("/api/status", (req: Request, res: Response) => {
   /**
