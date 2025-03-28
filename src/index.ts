@@ -681,6 +681,110 @@ app.post("/api/refresh", async (req: Request, res: Response) => {
 });
 
 // Endpoint para revogar o token de acesso
+app.post("/api/revoke", async (req: Request, res: Response) => {
+  /**
+   * @swagger
+   * /api/revoke:
+   *   post:
+   *     summary: Revoga um token de refresh
+   *     tags: [Autenticação]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               refreshToken:
+   *                 type: string
+   *                 description: Token de refresh JWT a ser revogado
+   *             required:
+   *               - refreshToken
+   *     responses:
+   *       200:
+   *         description: Token revogado com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Refresh token revoked
+   *       401:
+   *         description: Token de refresh não fornecido, não encontrado, já revogado ou expirado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Refresh token not provided
+   *       403:
+   *         description: Token de refresh inválido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid refresh token
+   */
+  // Obter o token de refresh do corpo da requisição
+  const { refreshToken } = req.body;
+
+  // Verifica se o token de refresh foi enviado
+  refreshToken
+    ? // Verifica se o token de refresh é válido
+      jwt.verify(refreshToken, REFRESH_TOKEN_SECRET, async (err: any) => {
+        // Se o token de refresh for inválido, retorna erro 403
+        if (err) {
+          return res.status(403).json({ error: "Invalid refresh token" });
+        }
+
+        // Verifica se o token de refresh está na lista de tokens e não foi revogado
+        const token = await prisma.token.findFirst({
+          where: {
+            refresh: refreshToken,
+            revoked: false,
+            expiredAt: {
+              gt: new Date(),
+            },
+          },
+        });
+
+        // Se o token de refresh não existir, retorna erro 401
+        if (!token) {
+          return res.status(401).json({ error: "Refresh token not found" });
+        }
+
+        // Verifica se o token de refresh foi revogado
+        if (token.revoked) {
+          return res.status(401).json({ error: "Refresh token revoked" });
+        }
+
+        // Verifica se o token de refresh expirou
+        if (token.expiredAt < new Date()) {
+          return res.status(401).json({ error: "Refresh token expired" });
+        }
+
+        // Revoga o token de refresh no banco de dados
+        await prisma.token.update({
+          where: {
+            id: token.id,
+          },
+          data: {
+            revoked: true,
+          },
+        });
+        // Retorna mensagem de sucesso
+        res.json({ message: "Refresh token revoked" });
+      })
+    : // Se o token de refresh não foi enviado, retorna erro 401
+      res.status(401).json({ error: "Refresh token not provided" });
+});
 
 // Iniciar o servidor
 app.listen(PORT, () => {
