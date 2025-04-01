@@ -215,6 +215,188 @@ app.get("/api/user/:id", async (req: Request, res: Response) => {
   res.json(user);
 });
 
+// Consultar todos os usuários no banco de dados
+app.get("/api/users", async (req: Request, res: Response) => {
+  /**
+   * @swagger
+   * /api/users:
+   *   get:
+   *     summary: Recupera todos os usuários
+   *     tags: [Usuários]
+   *     responses:
+   *       200:
+   *         description: Lista de usuários recuperada com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                   email:
+   *                     type: string
+   *                   username:
+   *                     type: string
+   *                   name:
+   *                     type: string
+   *                   createdAt:
+   *                     type: string
+   *                     format: date-time
+   *       500:
+   *         description: Erro ao recuperar usuários
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Erro ao recuperar usuários"
+   */
+  // Consultar todos os usuários no banco de dados
+  const users = await prisma.user.findMany();
+
+  // Retornar a lista de usuários sem a senha.
+  const usersWithoutPassword = users.map(({ password, ...user }) => user);
+
+  // Retornar a lista de usuários
+  res.json(usersWithoutPassword);
+});
+
+// Retornar usuários que estão logados
+app.get("/api/users/logged", async (req: Request, res: Response) => {
+  /**
+   * @swagger
+   * /api/users/logged:
+   *   get:
+   *     summary: Recupera todos os usuários atualmente logados
+   *     tags: [Usuários]
+   *     responses:
+   *       200:
+   *         description: Lista de usuários logados recuperada com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                   email:
+   *                     type: string
+   *                   username:
+   *                     type: string
+   *                   name:
+   *                     type: string
+   *                   password:
+   *                     type: string
+   *                     description: Senha criptografada do usuário
+   *                   createdAt:
+   *                     type: string
+   *                     format: date-time
+   *       500:
+   *         description: Erro ao recuperar usuários logados
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Erro ao recuperar usuários logados"
+   */
+  // Consultar todos os tokens válidos no banco de dados
+  const tokens = await prisma.token.findMany({
+    where: {
+      revoked: false,
+      expiredAt: {
+        gt: new Date(),
+      },
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  // Retornar a lista de usuários logados
+  const users = tokens.map((token) => token.user);
+
+  // Retornando a lista de usuários logados
+  res.json(users);
+});
+
+// Retornar usuários que não estão logados (Funcionalidade com erro, retornando usuáriom logado)
+app.get("/api/users/unlogged", async (req: Request, res: Response) => {
+  /**
+   * @swagger
+   * /api/users/unlogged:
+   *   get:
+   *     summary: Recupera todos os usuários que não estão atualmente logados
+   *     tags: [Usuários]
+   *     responses:
+   *       200:
+   *         description: Lista de usuários não logados recuperada com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                   email:
+   *                     type: string
+   *                   username:
+   *                     type: string
+   *                   name:
+   *                     type: string
+   *                   password:
+   *                     type: string
+   *                     description: Senha criptografada do usuário
+   *                   createdAt:
+   *                     type: string
+   *                     format: date-time
+   *       500:
+   *         description: Erro ao recuperar usuários não logados
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Erro ao recuperar usuários não logados"
+   */
+  // Consultar todos os tokens inválidos no banco de dados
+  const tokens = await prisma.token.findMany({
+    where: {
+      OR: [
+        {
+          revoked: true,
+        },
+        {
+          expiredAt: {
+            lte: new Date(),
+          },
+        },
+      ],
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  // Retornar a lista de usuários não logados
+  const users = tokens.map((token) => token.user);
+
+  // Retornando a lista de usuários não logados
+  res.json(users);
+});
+
 // Endpoint para criação de usuários
 app.post("/api/user", async (req: Request, res: Response) => {
   /**
@@ -503,28 +685,53 @@ app.post("/api/access", async (req: Request, res: Response) => {
   // Extrair o token de acesso do corpo da requisição
   const { accessToken } = req.body;
 
-  // Verificar assinatura e expiração do token
-  const decoded = jwt.verify(accessToken, ACCESS_TOKEN_SECRET);
-
-  // Verificar se o token está na lista de token existe e não foi revogado
-  const token = await prisma.token.findFirst({
-    where: {
-      access: accessToken,
-      revoked: false,
-      expiredAt: {
-        gt: new Date(),
-      },
-    },
-  });
-
-  // Se o token não existir, retornar erro 401, token inválido
-  if (!token) {
+  // Se o token de acesso não for fornecido, retornar erro 401
+  if (!accessToken) {
     res.status(401).json({ valid: false });
     return;
   }
 
-  // Retornar o payload do token decodificado e válido
-  res.status(200).json({ valid: true, user: decoded });
+  // Tentar verificar o token de acesso
+  try {
+    // Verificar assinatura e expiração do token
+    const decoded = jwt.verify(accessToken, ACCESS_TOKEN_SECRET);
+
+    // Verificar se o token está na lista de token existe e não foi revogado
+    const token = await prisma.token.findFirst({
+      where: {
+        access: accessToken,
+        revoked: false,
+        expiredAt: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    // Se o token não existir, retornar erro 401, token inválido
+    if (!token) {
+      res.status(401).json({ valid: false });
+      return;
+    }
+
+    // Retornar o payload do token decodificado e válido
+    res.status(200).json({ valid: true, user: decoded });
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      res.status(401).json({ valid: false, error: "Token expirado" });
+      return;
+    } else if (error instanceof jwt.JsonWebTokenError) {
+      res
+        .status(401)
+        .json({ valid: false, error: "Token inválido ou malformado" });
+      return;
+    } else {
+      // Captura qualquer outro erro
+      res
+        .status(401)
+        .json({ valid: false, error: "Erro na validação do token" });
+      return;
+    }
+  }
 });
 
 // Endpoint que renova o token de acesso
@@ -659,7 +866,7 @@ app.post("/api/refresh", async (req: Request, res: Response) => {
     : res.status(401).json({ error: "Refresh token not provided" });
 });
 
-// Endpoint para revogar o token de acesso
+// Endpoint para revogar o token de acesso e o token de refresh
 app.post("/api/revoke", async (req: Request, res: Response) => {
   /**
    * @swagger
@@ -768,25 +975,27 @@ app.post("/api/revoke", async (req: Request, res: Response) => {
 // Iniciar o servidor
 app.listen(PORT, () => {
   // Mensagem de log ao iniciar o servidor
-  console.log(`                                             
-     ##### ##   ###   ###                               
-  ######  /### / ###   ###    #                         
- /#   /  / ###/   ##    ##   ###                  #     
-/    /  /   ##    ##    ##    #                  ##     
-    /  /          ##    ##                       ##     
-   ## ##          ##    ##  ###       /###     ######## 
-   ## ##          ##    ##   ###     / ###  / ########  
-   ## ######      ##    ##    ##    /   ###/     ##     
-   ## #####       ##    ##    ##   ##    ##      ##     
-   ## ##          ##    ##    ##   ##    ##      ##     
-   #  ##          ##    ##    ##   ##    ##      ##     
-      /           ##    ##    ##   ##    ##      ##     
-  /##/         /  ##    ##    ##   ##    ##      ##     
- /  ##########/   ### / ### / ### / ######       ##     
-/     ######       ##/   ##/   ##/   ####         ##    
-#                                                       
- ##
- 
+  console.log(`
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⣿⣿⣿⣶⣦⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀      ##### ##   ###   ###                               
+⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⡄⠀⠀⠀⠀⠀⠀⠀⠀   ######  /### / ###   ###    #                         
+⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀⠀  /#   /  / ###/   ##    ##   ###                  #     
+⠀⠀⠀⠀⠀⠀⣠⣿⣿⣿⢟⣭⣴⣶⡦⠍⠛⣿⣿⣿⣿⣿⠇⠀⠀⠀⠀⠀⠀⠀  /    /  /   ##    ##    ##    #                  ##     
+⠈⠳⣶⣤⣤⣶⣿⠿⢫⣾⣿⣿⠋⠀⠀⠀⠀⢸⣿⡟⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀      /  /          ##    ##                       ##     
+⠀⠀⠈⠉⠉⠉⠁⣰⣿⣿⣿⠇⠀⢀⣀⣤⣴⣾⣧⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀     ## ##          ##    ##  ###       /###     ######## 
+⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⡟⢠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀     ## ##          ##    ##   ###     / ###  / ########  
+⠀⠀⠀⠀⠀⣠⣿⣿⣿⡟⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡀⠀⠀⠀⠀     ## ######      ##    ##    ##    /   ###/     ##     
+⠀⠀⢀⣠⣶⣿⣿⡿⠋⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡷⠀⠀⠀⠀     ## #####       ##    ##    ##   ##    ##      ##     
+⠉⠛⠛⠛⠛⠛⠉⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⣛⣥⣶⣆⠀⠀⠀     ## ##          ##    ##    ##   ##    ##      ##     
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⠏⣥⣤⡙⢟⣫⡴⠿⠿⠿⠷⠿⣷⡀⠀     #  ##          ##    ##    ##   ##    ##      ##     
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⡜⢿⡿⢃⣌⢻⣟⠛⠻⠶⠶⢶⣾⣿⡄        /           ##    ##    ##   ##    ##      ##     
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⡄⣾⣿⣿⣷⡝⢿⣷⣶⣶⣦⡾⠟⠁    /##/         /  ##    ##    ##   ##    ##      ##     
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⣟⣛⣻⠿⠿⢧⢹⣿⣿⣿⣿⣦⡙⢷⡶⠋⠀⠀⠀   /  ##########/   ### / ### / ### / ######       ##     
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣝⠻⣿⣿⣛⠷⠌⢿⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀  /     ######       ##/   ##/   ##/   ####         ##    
+⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣮⣝⠻⣿⣶⣦⣤⣉⠛⠿⢿⠁⠀⠀⠀⠀⠀  #                                                       
+⠀⠀⠀⠀⠀⠀⠰⣾⣿⣿⣿⣿⣿⣿⣿⣿⣶⣭⣛⠿⢿⣧⢷⣤⡀⠀⠀⠀⠀⠀   ##
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⠛⠿⣿⣿⣿⣿⣷⡦⠉⢿⣿⡷⠦⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠻⡿⠋⠀⠀⠈⠀⠀⠀⠀⠀⠀
+
 API Elliot iniciada na porta ${PORT}.
 
 Acesse ao endpoint /api/docs para ver a documentação da API.
